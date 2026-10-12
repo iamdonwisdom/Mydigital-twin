@@ -1,6 +1,8 @@
 import os
 import re
+import hashlib
 import numpy as np
+import chromadb
 from datetime import date
 from dotenv import load_dotenv
 from groq import Groq
@@ -11,31 +13,64 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL = "openai/gpt-oss-20b"
 TOP_K = 3
 MIN_SCORE = 0.40
-MAX_HISTORY_TOKENS = 3000  # lower this (e.g. 400) to test summarizing quickly
+MAX_HISTORY_TOKENS = 3000  # lower to 400 to test summarizing
 
-# ---------- knowledge base ----------
+# ---------- knowledge base (stored in a vector database) ----------
 embedder = TextEmbedding("BAAI/bge-small-en-v1.5")
+db = chromadb.PersistentClient(path="chroma_db")
+HASH_FILE = os.path.join("chroma_db", "knowledge.hash")
 
 with open("knowledge.txt", encoding="utf-8") as f:
-    chunks = [c.strip() for c in f.read().split("\n\n") if c.strip()]
+    raw = f.read()
+chunks = [c.strip() for c in raw.split("\n\n") if c.strip()]
+file_hash = hashlib.md5(raw.encode()).hexdigest()
+old_hash = open(HASH_FILE).read() if os.path.exists(HASH_FILE) else ""
 
-chunk_vecs = np.array(list(embedder.embed(chunks)))
-chunk_norms = np.linalg.norm(chunk_vecs, axis=1)
+if old_hash != file_hash:
+    # knowledge.txt is new or changed: rebuild the index
+    try:
+        db.delete_collection("twin_knowledge")
+    except Exception:
+        pass
+    collection = db.create_collection(
+        "twin_knowledge", metadata={"hnsw:space": "cosine"}
+    )
+    vecs = [v.tolist() for v in embedder.embed(chunks)]
+    collection.add(
+        ids=[str(i) for i in range(len(chunks))],
+        documents=chunks,
+        embeddings=vecs,
+    )
+    with open(HASH_FILE, "w") as f:
+        f.write(file_hash)
+    print("Knowledge indexed.")
+else:
+    collection = db.get_collection("twin_knowledge")
+
 
 def retrieve(question):
-    q = np.array(list(embedder.embed([question])))[0]
-    scores = chunk_vecs @ q / (chunk_norms * np.linalg.norm(q))
-    best = np.argsort(scores)[::-1][:TOP_K]
-    return [chunks[i] for i in best if scores[i] >= MIN_SCORE]
+    q = list(embedder.embed([question]))[0].tolist()
+    res = collection.query(
+        query_embeddings=[q],
+        n_results=min(TOP_K, collection.count()),
+    )
+    facts = []
+    for doc, dist in zip(res["documents"][0], res["distances"][0]):
+        if 1 - dist >= MIN_SCORE:  # cosine distance -> similarity
+            facts.append(doc)
+    return facts
+
 
 # ---------- helpers ----------
 def clean(text):
     text = re.sub(r"【[^】]*】", "", text)
     return text.replace("**", "").strip()
 
+
 def estimate_tokens(messages):
     # rough rule: 1 token is about 4 characters
     return sum(len(m["content"]) for m in messages) // 4
+
 
 def build_system_prompt(facts, summary):
     facts_text = "\n\n".join(facts) if facts else "(no matching facts found)"
@@ -56,6 +91,7 @@ Rules:
 - Answer in plain text only. No tables, no markdown symbols like ** or |.
 - Keep answers short and clear."""
 
+
 def summarize(old_messages, previous_summary):
     text = "\n".join(f'{m["role"]}: {m["content"]}' for m in old_messages)
     prompt = (f"Previous summary: {previous_summary or 'none'}\n\n"
@@ -69,6 +105,7 @@ def summarize(old_messages, previous_summary):
         max_completion_tokens=1000,
     )
     return clean(r.choices[0].message.content or "")
+
 
 # ---------- chat loop ----------
 history = []
