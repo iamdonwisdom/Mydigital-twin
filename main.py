@@ -1,45 +1,56 @@
 import os
 import re
+import numpy as np
 from datetime import date
 from dotenv import load_dotenv
 from groq import Groq
+from fastembed import TextEmbedding
 
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
 MODEL = "openai/gpt-oss-20b"
-MAX_MESSAGES = 20  # how much chat history to remember
+MAX_MESSAGES = 20
+TOP_K = 3
+MIN_SCORE = 0.40  # ignore facts that are not related to the question
 
-# Fill in your real details below
-PROFILE = """
-- Name: Chi Dozie
-- Location: Nigeria
-- Interests: AI, cybersecurity, building with LLMs
-- About me: (write 2-3 sentences about yourself here)
-"""
+# ---------- load and embed the knowledge base ----------
+embedder = TextEmbedding("BAAI/bge-small-en-v1.5")
 
-def build_system_prompt():
-    return f"""You are the digital twin of Cyberawareness.
+with open("knowledge.txt", encoding="utf-8") as f:
+    chunks = [c.strip() for c in f.read().split("\n\n") if c.strip()]
+
+chunk_vecs = np.array(list(embedder.embed(chunks)))
+chunk_norms = np.linalg.norm(chunk_vecs, axis=1)
+
+def retrieve(question):
+    q = np.array(list(embedder.embed([question])))[0]
+    scores = chunk_vecs @ q / (chunk_norms * np.linalg.norm(q))
+    best = np.argsort(scores)[::-1][:TOP_K]
+    return [chunks[i] for i in best if scores[i] >= MIN_SCORE]
+
+# ---------- prompts ----------
+def build_system_prompt(facts):
+    facts_text = "\n\n".join(facts) if facts else "(no matching facts found)"
+    return f"""You are the digital twin of Chi Dozie.
 Speak in the first person, as Chi, in a friendly and clear way.
 Today's date is {date.today().strftime('%A, %d %B %Y')}.
-Facts about Chi (only use these; never invent personal details):
- I am a Computer Science and Cybersecurity student at the University of the People, with a strong interest in Red Team operations, penetration testing, and ethical hacking. I am developing my practical skills in networking, Linux, Python programming, web application security, and vulnerability assessment through hands-on labs and personal projects. I am also exploring Artificial Intelligence and Machine Learning to understand how these technologies can support modern cybersecurity. My goal is to become a skilled cybersecurity professional who can identify vulnerabilities, strengthen digital security, and help organizations protect their systems and data. I am committed to continuous learning, practical experience, and professional growth.
+
+Facts about Chi relevant to this question:
+{facts_text}
 
 Rules:
+- For questions about Chi, use ONLY the facts above. If they don't cover it, say you don't know. Never invent personal details.
 - For news, current events, prices or anything recent, use web search.
 - Answer in plain text only. No tables, no markdown symbols like ** or |.
-- Keep answers short and clear, with simple bullet points if needed.
-- If you don't know something about Chi, say so."""
+- Keep answers short and clear."""
 
 def clean(text):
-    # remove citation markers such as 【2†L6-L10】
-    return re.sub(r"【[^】]*】", "", text).replace("**", "").strip()
+    text = re.sub(r"【[^】]*】", "", text)
+    return text.replace("**", "").strip()
 
-def new_chat():
-    return [{"role": "system", "content": build_system_prompt()}]
-
-messages = new_chat()
-print("Chat with your twin. Type 'clear' to reset, 'quit' to stop.\n")
+# ---------- chat loop ----------
+history = []  # user and assistant messages only
+print(f"Twin loaded with {len(chunks)} facts. Type 'clear' to reset, 'quit' to stop.\n")
 
 while True:
     user_input = input("You: ").strip()
@@ -48,11 +59,13 @@ while True:
     if user_input.lower() == "quit":
         break
     if user_input.lower() == "clear":
-        messages = new_chat()
+        history = []
         print("Chat cleared.\n")
         continue
 
-    messages.append({"role": "user", "content": user_input})
+    facts = retrieve(user_input)
+    history.append({"role": "user", "content": user_input})
+    messages = [{"role": "system", "content": build_system_prompt(facts)}] + history
 
     try:
         response = client.chat.completions.create(
@@ -66,12 +79,9 @@ while True:
         reply = clean(response.choices[0].message.content or "")
     except Exception as e:
         print("Error:", e, "\n")
-        messages.pop()  # remove the failed question
+        history.pop()
         continue
 
-    messages.append({"role": "assistant", "content": reply})
+    history.append({"role": "assistant", "content": reply})
     print("Twin:", reply, "\n")
-
-    # keep the system prompt + the latest messages only
-    if len(messages) > MAX_MESSAGES:
-        messages = [messages[0]] + messages[-(MAX_MESSAGES - 1):]
+    history = history[-MAX_MESSAGES:]
