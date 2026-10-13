@@ -2,4 +2,4 @@
 venv/
 knowledge.txt
 chroma_db/
-
+visitor_messages.jsonl
