@@ -1,7 +1,6 @@
 import os
 import re
 import hashlib
-import numpy as np
 import chromadb
 from datetime import date
 from dotenv import load_dotenv
@@ -14,6 +13,7 @@ MODEL = "openai/gpt-oss-20b"
 TOP_K = 3
 MIN_SCORE = 0.40
 MAX_HISTORY_TOKENS = 3000  # lower to 400 to test summarizing
+SHOW_SOURCES = True  # print which facts were retrieved
 
 # ---------- knowledge base (stored in a vector database) ----------
 embedder = TextEmbedding("BAAI/bge-small-en-v1.5")
@@ -128,6 +128,11 @@ while True:
         continue
 
     facts = retrieve(user_input)
+    if SHOW_SOURCES:
+        print(f"[retrieved {len(facts)} facts]")
+        for fact in facts:
+            print("   -", fact[:80], "...")
+
     history.append({"role": "user", "content": user_input})
     messages = [{"role": "system", "content": build_system_prompt(facts, summary)}] + history
 
