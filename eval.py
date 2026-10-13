@@ -24,7 +24,7 @@ main.AVAILABLE_FUNCTIONS["save_visitor_message"] = wrap(
 )
 
 IDK = ["don't know", "do not know", "don't have", "do not have", "not sure",
-       "can't", "cannot", "no information", "sorry", "not able"]
+       "can't", "cannot", "no information", "any information", "sorry", "not able"]
 
 TESTS = [
     {"q": "What is your name?", "tool": None,
@@ -51,7 +51,7 @@ TESTS = [
 
 def check(test, reply):
     problems = []
-    low = reply.lower()
+    low = reply.lower().replace(",", "")
     if test["tool"] is None and used:
         problems.append(f"used a tool it should not: {used}")
     if test["tool"] and test["tool"] not in used:
@@ -66,13 +66,18 @@ def check(test, reply):
 
 
 passed = 0
+ran = 0
 for i, test in enumerate(TESTS, 1):
     used.clear()
     try:
         reply, _ = main.ask_twin(test["q"])
         problems = check(test, reply)
     except Exception as e:
+        if "429" in str(e):
+            print(f"{i:>2}. STOPPED  daily limit reached. Try again later.")
+            break
         reply, problems = f"(error: {e})", ["crashed"]
+    ran += 1
     status = "PASS" if not problems else "FAIL"
     passed += not problems
     print(f"{i:>2}. {status}  {test['q']}")
@@ -81,4 +86,4 @@ for i, test in enumerate(TESTS, 1):
         print("      answer:", reply[:200].replace("\n", " "))
     time.sleep(1)
 
-print(f"\nScore: {passed}/{len(TESTS)}")
+print(f"\nScore: {passed}/{ran} tests run (of {len(TESTS)})")
