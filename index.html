@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chi's Digital Twin</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a;
+         color: #e2e8f0; display: flex; flex-direction: column; height: 100dvh; }
+  header { padding: 14px 16px; background: #1e293b; font-weight: 600; }
+  header small { display: block; font-weight: 400; color: #94a3b8; margin-top: 2px; }
+  #log { flex: 1; overflow-y: auto; padding: 16px; display: flex;
+         flex-direction: column; gap: 10px; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px;
+         white-space: pre-wrap; line-height: 1.4; }
+  .user { align-self: flex-end; background: #2563eb; }
+  .bot { align-self: flex-start; background: #1e293b; }
+  form { display: flex; gap: 8px; padding: 12px; background: #1e293b; }
+  input { flex: 1; padding: 12px; border-radius: 10px; border: 0;
+          font-size: 16px; background: #0f172a; color: #e2e8f0; }
+  button { padding: 12px 18px; border: 0; border-radius: 10px;
+           background: #2563eb; color: #fff; font-size: 16px; }
+  button:disabled { opacity: .5; }
+</style>
+</head>
+<body>
+<header>Chi's Digital Twin
+  <small>An AI that answers as Chi. It can make mistakes.</small>
+</header>
+<div id="log"></div>
+<form id="form">
+  <input id="input" maxlength="1000" autocomplete="off"
+         placeholder="Ask me anything..." required>
+  <button id="send" type="submit">Send</button>
+</form>
+<script>
+  const log = document.getElementById("log");
+  const form = document.getElementById("form");
+  const input = document.getElementById("input");
+  const btn = document.getElementById("send");
+
+  let sid = sessionStorage.getItem("sid");
+  if (!sid) {
+    sid = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Date.now() + "-" + Math.random().toString(16).slice(2);
+    sessionStorage.setItem("sid", sid);
+  }
+
+  function add(text, cls) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.textContent = text;   // textContent keeps visitor text from running as code
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  add("Hi! I'm Chi's digital twin. Ask me about my studies, my projects, or anything else.", "bot");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    add(text, "user");
+    input.value = "";
+    btn.disabled = true;
+    const thinking = add("Thinking...", "bot");
+    try {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid, message: text }),
+      });
+      if (!res.ok) throw new Error("bad response");
+      const data = await res.json();
+      thinking.textContent = data.reply;
+    } catch (err) {
+      thinking.textContent = "Sorry, something went wrong. Please try again.";
+    }
+    btn.disabled = false;
+    input.focus();
+    log.scrollTop = log.scrollHeight;
+  });
+</script>
+</body>
+</html>
