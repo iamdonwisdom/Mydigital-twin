@@ -3,7 +3,7 @@ venv/
 knowledge.txt
 chroma_db/
 visitor_messages.jsonl
-security_logs.jsonl
+security_log.jsonl
 redteam_messages.jsonl
 redteam_security_log.jsonl
 .vscode/
