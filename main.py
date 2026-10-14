@@ -7,15 +7,15 @@ import base64
 import hashlib
 import operator
 import secrets
-import chromadb
 from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
 from groq import Groq
-from fastembed import TextEmbedding
 
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL = os.getenv("TWIN_MODEL", "openai/gpt-oss-20b")
+USE_RAG = os.getenv("USE_RAG", "1") != "0"   # set USE_RAG=0 on small free hosts
+MAX_LIGHT_CHARS = 8000                       # facts limit in light mode
 TOP_K = 3
 MIN_SCORE = 0.40
 MAX_HISTORY_TOKENS = 3000   # lower to 400 to test summarizing
@@ -32,11 +32,7 @@ MAX_SAVES_PER_SESSION = 3
 MESSAGES_FILE = "visitor_messages.jsonl"
 SECURITY_LOG = "security_log.jsonl"
 
-# ---------- knowledge base (stored in a vector database) ----------
-embedder = TextEmbedding("BAAI/bge-small-en-v1.5")
-db = chromadb.PersistentClient(path="chroma_db")
-HASH_FILE = os.path.join("chroma_db", "knowledge.hash")
-
+# ---------- knowledge ----------
 # on a host, the knowledge text comes from the private KNOWLEDGE_B64 setting;
 # on your laptop it is read from knowledge.txt
 if os.getenv("KNOWLEDGE_B64"):
@@ -46,41 +42,62 @@ else:
         raw = f.read()
 
 chunks = [c.strip() for c in raw.split("\n\n") if c.strip()]
-file_hash = hashlib.md5(raw.encode()).hexdigest()
-old_hash = open(HASH_FILE).read() if os.path.exists(HASH_FILE) else ""
 
-if old_hash != file_hash:
-    try:
-        db.delete_collection("twin_knowledge")
-    except Exception:
-        pass
-    collection = db.create_collection(
-        "twin_knowledge", metadata={"hnsw:space": "cosine"}
-    )
-    vecs = [v.tolist() for v in embedder.embed(chunks)]
-    collection.add(
-        ids=[str(i) for i in range(len(chunks))],
-        documents=chunks,
-        embeddings=vecs,
-    )
-    with open(HASH_FILE, "w") as f:
-        f.write(file_hash)
-    print("Knowledge indexed.")
+if USE_RAG:
+    # full mode: vector database search (needs about 1 GB of memory)
+    import chromadb
+    from fastembed import TextEmbedding
+
+    embedder = TextEmbedding("BAAI/bge-small-en-v1.5")
+    db = chromadb.PersistentClient(path="chroma_db")
+    HASH_FILE = os.path.join("chroma_db", "knowledge.hash")
+    file_hash = hashlib.md5(raw.encode()).hexdigest()
+    old_hash = open(HASH_FILE).read() if os.path.exists(HASH_FILE) else ""
+
+    if old_hash != file_hash:
+        try:
+            db.delete_collection("twin_knowledge")
+        except Exception:
+            pass
+        collection = db.create_collection(
+            "twin_knowledge", metadata={"hnsw:space": "cosine"}
+        )
+        vecs = [v.tolist() for v in embedder.embed(chunks)]
+        collection.add(
+            ids=[str(i) for i in range(len(chunks))],
+            documents=chunks,
+            embeddings=vecs,
+        )
+        with open(HASH_FILE, "w") as f:
+            f.write(file_hash)
+        print("Knowledge indexed.")
+    else:
+        collection = db.get_collection("twin_knowledge")
+
+    def retrieve(question):
+        q = list(embedder.embed([question]))[0].tolist()
+        res = collection.query(
+            query_embeddings=[q],
+            n_results=min(TOP_K, collection.count()),
+        )
+        facts = []
+        for doc, dist in zip(res["documents"][0], res["distances"][0]):
+            if 1 - dist >= MIN_SCORE:
+                facts.append(doc)
+        return facts
+
 else:
-    collection = db.get_collection("twin_knowledge")
+    # light mode: every fact goes into every prompt (fine for a small file)
+    light_facts, _total = [], 0
+    for c in chunks:
+        if _total + len(c) > MAX_LIGHT_CHARS:
+            break
+        light_facts.append(c)
+        _total += len(c)
+    print(f"Light mode: {len(light_facts)} facts go into every prompt (no vector database).")
 
-
-def retrieve(question):
-    q = list(embedder.embed([question]))[0].tolist()
-    res = collection.query(
-        query_embeddings=[q],
-        n_results=min(TOP_K, collection.count()),
-    )
-    facts = []
-    for doc, dist in zip(res["documents"][0], res["distances"][0]):
-        if 1 - dist >= MIN_SCORE:
-            facts.append(doc)
-    return facts
+    def retrieve(question):
+        return light_facts
 
 
 # ---------- helpers ----------
