@@ -7,6 +7,8 @@ import base64
 import hashlib
 import operator
 import secrets
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
 from groq import Groq
@@ -234,6 +236,25 @@ def web_search(query):
     return text[:3000] if text else "The search returned no readable results."
 
 
+def notify_telegram(text):
+    """Send a message to my Telegram. Does nothing if it is not configured."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+    try:
+        data = urllib.parse.urlencode(
+            {"chat_id": chat_id, "text": text[:3500]}
+        ).encode()
+        urllib.request.urlopen(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=data,
+            timeout=8,
+        )
+    except Exception:
+        pass  # never crash the chat because Telegram failed
+
+
 _saves = 0
 
 
@@ -259,6 +280,12 @@ def save_visitor_message(message, name="", contact=""):
     with open(MESSAGES_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
     _saves += 1
+    notify_telegram(
+        f"New message for you\n"
+        f"From: {name or 'anonymous'}\n"
+        f"Contact: {contact or 'none'}\n\n"
+        f"{message}"
+    )
     return "Message saved. Chi will see it."
 
 
