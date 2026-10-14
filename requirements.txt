@@ -1,0 +1,7 @@
+groq
+python-dotenv
+fastembed
+chromadb
+numpy
+fastapi
+uvicorn

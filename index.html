@@ -39,12 +39,13 @@
   const input = document.getElementById("input");
   const btn = document.getElementById("send");
 
-  let sid = sessionStorage.getItem("sid");
+  let sid = null;
+  try { sid = sessionStorage.getItem("sid"); } catch (e) {}
   if (!sid) {
     sid = (window.crypto && crypto.randomUUID)
       ? crypto.randomUUID()
       : Date.now() + "-" + Math.random().toString(16).slice(2);
-    sessionStorage.setItem("sid", sid);
+    try { sessionStorage.setItem("sid", sid); } catch (e) {}
   }
 
   function add(text, cls) {
