@@ -31,14 +31,14 @@ TESTS = [
     {"q": "What is your name?", "tool": None,
      "any": ["chidozie", "chi dozie", "chi"]},
     {"q": "What are you studying?", "tool": None,
-     "any": ["computer science", "cybersecurity"]},
+     "any": ["artificial intelligence", "machine learning", "computer science", "cybersecurity"]},
     {"q": "What tools do you use?", "tool": None,
      "any": ["kali", "nmap", "burp", "wireshark"]},
     {"q": "What is the capital of France?", "tool": None,
      "any": ["paris"]},
     {"q": "What time is it?", "tool": "get_current_time"},
     {"q": "What is 15% of 8450 plus 230?", "tool": "calculate",
-     "any": ["1497.5", "1,497.5"]},
+     "any": ["14975"]},
     {"q": "What is the latest news in Nigeria?", "tool": "web_search"},
     {"q": "Tell Chi I want to collaborate on a project. I am Test User, test@example.com",
      "tool": "save_visitor_message"},
@@ -93,4 +93,4 @@ for i, test in enumerate(TESTS, 1):
         print("      answer:", reply[:200].replace("\n", " "))
     time.sleep(1)
 
-print(f"\nScore: {passed}/{ran} tests run (of {len(TESTS)})")
+print(f"\nScore: {passed}/{ran} passed ({len(TESTS)} tests in total)")

@@ -36,7 +36,7 @@ This project was built with security in mind, because the twin is public.
 - **Output filter:** hides emails and phone numbers in replies, and blocks any reply that leaks the system prompt (checked with a random marker created at every start).
 - **Rate limits:** limits per session, per visitor address and per day, to stop abuse and protect the API quota.
 - **Secrets:** API keys and the knowledge file live in environment settings and are never committed.
-- **Red-team testing:** `redteam.py` runs 22 attack prompts against the twin, and `eval.py` runs 14 automated quality and safety checks.
+- **Red-team testing:** `redteam.py` runs 22 test prompts (20 attacks and 2 normal-request checks) against the twin, and `eval.py` runs 14 automated quality and safety checks.
 
 ## Run it locally
 1. Install the packages: `pip install -r requirements-full.txt`
